@@ -1,0 +1,137 @@
+name: storage-lucien-test
+
+###############################################################################
+# storage-lucien — banc de test autonome (2 sites x 2 nœuds)
+#
+# Port range de test : 15000-20000 (exposés host uniquement pour le debug).
+#
+# Chaque nœud est aussi rattaché au réseau LAN du site distant (IP secondaire
+# dédiée) : GlusterFS connecte ses clients/bricks directement par IP, une
+# géo-réplication inter-DC a donc besoin d'une vraie joignabilité de sous-
+# réseau à sous-réseau, pas juste d'une passerelle unique. C'est exactement
+# ce qu'apporterait un vrai tunnel site-à-site WireGuard (construit dans
+# LB-Syo, tâche suivante) ; on le simule ici pour que ce repo reste testable
+# de façon autonome, sans dépendre d'un autre repo pour son propre test.
+#
+# Usage:
+#   cd storage-lucien/tests
+#   docker compose -f docker-compose.test.yml up -d --build
+#   ./run_tests.sh
+#   docker compose -f docker-compose.test.yml down -v
+###############################################################################
+
+networks:
+  backbone:
+    ipam: { config: [{ subnet: 10.60.0.0/24 }] }
+  site-a:
+    ipam: { config: [{ subnet: 10.60.1.0/24 }] }
+  site-b:
+    ipam: { config: [{ subnet: 10.60.2.0/24 }] }
+
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.13
+    container_name: sl-test-etcd
+    command:
+      - etcd
+      - --name=etcd0
+      - --data-dir=/etcd-data
+      - --listen-client-urls=http://0.0.0.0:2379
+      - --advertise-client-urls=http://etcd:2379
+      - --listen-peer-urls=http://0.0.0.0:2380
+      - --initial-cluster=etcd0=http://etcd:2380
+      - --initial-cluster-state=new
+    networks:
+      backbone:
+        ipv4_address: 10.60.0.2
+    ports:
+      - "15379:2379"
+    healthcheck:
+      test: ["CMD", "etcdctl", "--endpoints=http://localhost:2379", "endpoint", "health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  site-a-1:
+    build: ../
+    container_name: sl-test-a1
+    hostname: site-a-1
+    cap_add: [SYS_ADMIN, NET_ADMIN]
+    devices: ["/dev/fuse"]
+    security_opt: ["apparmor:unconfined"]
+    environment:
+      ETCD_URL: http://etcd:2379
+      SITE: site-a
+      STORAGE_ID: "1"
+      STORAGE_VIP: "10.60.1.19"
+    networks:
+      backbone: {}
+      site-a: { ipv4_address: 10.60.1.11 }
+      site-b: { ipv4_address: 10.60.2.15 }   # simule la route WireGuard vers site-b
+    depends_on:
+      etcd: { condition: service_healthy }
+    ports:
+      - "15001:2049"
+
+  site-a-2:
+    build: ../
+    container_name: sl-test-a2
+    hostname: site-a-2
+    cap_add: [SYS_ADMIN, NET_ADMIN]
+    devices: ["/dev/fuse"]
+    security_opt: ["apparmor:unconfined"]
+    environment:
+      ETCD_URL: http://etcd:2379
+      SITE: site-a
+      STORAGE_ID: "2"
+      STORAGE_VIP: "10.60.1.19"
+    networks:
+      backbone: {}
+      site-a: { ipv4_address: 10.60.1.12 }
+      site-b: { ipv4_address: 10.60.2.16 }
+    depends_on:
+      etcd: { condition: service_healthy }
+    ports:
+      - "15002:2049"
+
+  site-b-1:
+    build: ../
+    container_name: sl-test-b1
+    hostname: site-b-1
+    cap_add: [SYS_ADMIN, NET_ADMIN]
+    devices: ["/dev/fuse"]
+    security_opt: ["apparmor:unconfined"]
+    environment:
+      ETCD_URL: http://etcd:2379
+      SITE: site-b
+      STORAGE_ID: "1"
+      STORAGE_VIP: "10.60.2.19"
+    networks:
+      backbone: {}
+      site-b: { ipv4_address: 10.60.2.11 }
+      site-a: { ipv4_address: 10.60.1.15 }   # simule la route WireGuard vers site-a
+    depends_on:
+      etcd: { condition: service_healthy }
+    ports:
+      - "15003:2049"
+
+  site-b-2:
+    build: ../
+    container_name: sl-test-b2
+    hostname: site-b-2
+    cap_add: [SYS_ADMIN, NET_ADMIN]
+    devices: ["/dev/fuse"]
+    security_opt: ["apparmor:unconfined"]
+    environment:
+      ETCD_URL: http://etcd:2379
+      SITE: site-b
+      STORAGE_ID: "2"
+      STORAGE_VIP: "10.60.2.19"
+    networks:
+      backbone: {}
+      site-b: { ipv4_address: 10.60.2.12 }
+      site-a: { ipv4_address: 10.60.1.16 }
+    depends_on:
+      etcd: { condition: service_healthy }
+    ports:
+      - "15004:2049"
