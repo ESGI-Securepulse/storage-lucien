@@ -61,8 +61,15 @@
   se démonte tout seul si aucune n'est encore joignable ("no subvolumes
   up" dans les logs glusterfs). `mount && break` ne détectait donc pas cet
   échec différé. `mount_volume()` vérifie désormais que le point de
-  montage sert vraiment des données (`stat` réussi) avant de continuer, et
-  redémonte proprement avant chaque nouvel essai sinon.
+  montage sert vraiment des données (`stat` réussi) avant de continuer.
+  **Correctif révisé** : la première version de ce correctif redémontait
+  (`umount -l`) entre chaque tentative — ce qui s'est avéré interrompre la
+  négociation GlusterFS en cours avant qu'elle n'aboutisse, faisant
+  régresser les tests à 2 nœuds de ce repo (passaient à 13/13 avant, à
+  6/12 avec cette première version). `mount_volume()` monte désormais une
+  seule fois puis patiente (sans redémonter) que le montage devienne
+  utilisable — confirmé stable sur 2 runs propres consécutifs (13/13
+  à chaque fois) après ce second correctif.
 
 ### Découvert (limitation d'environnement, pas un bug de ce repo)
 - Montage NFSv4 **cross-conteneur** bloqué sur l'hôte de développement
