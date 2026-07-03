@@ -52,6 +52,17 @@
   existe séparément). Basculé sur `FSAL_GLUSTER` (accès natif via libgfapi
   au volume, sans repasser par le montage FUSE local) — trouvé et corrigé
   en construisant les tests d'intégration de `Mail/`.
+- **Course entre le montage FUSE local et la disponibilité du brick
+  GlusterFS**, repérée en construisant `integration/` (4 sites démarrant
+  GlusterFS/Pacemaker/Corosync simultanément, jamais reproduit sur les
+  tests à 2 nœuds de ce repo, moins chargés) : `mount -t glusterfs` réussit
+  dès que le montage FUSE est enregistré côté noyau, mais le client
+  glusterfs négocie ensuite la connexion aux bricks de façon asynchrone et
+  se démonte tout seul si aucune n'est encore joignable ("no subvolumes
+  up" dans les logs glusterfs). `mount && break` ne détectait donc pas cet
+  échec différé. `mount_volume()` vérifie désormais que le point de
+  montage sert vraiment des données (`stat` réussi) avant de continuer, et
+  redémonte proprement avant chaque nouvel essai sinon.
 
 ### Découvert (limitation d'environnement, pas un bug de ce repo)
 - Montage NFSv4 **cross-conteneur** bloqué sur l'hôte de développement

@@ -186,11 +186,27 @@ setup_volume() {
 
 mount_volume() {
     echo "[mount] mounting ${GLUSTER_VOL} on /export/mail..."
+    # `mount -t glusterfs` réussit dès que le montage FUSE est enregistré
+    # côté noyau -- le client glusterfs négocie ensuite la connexion aux
+    # bricks de façon asynchrone, et se démonte tout seul si aucune brique
+    # n'est encore joignable ("no subvolumes up"). Sous forte charge (ex.
+    # 4 sites qui démarrent GlusterFS/Pacemaker/Corosync en même temps), le
+    # brick local peut mettre plus de temps à être prêt que le mount
+    # syscall n'en laisse le temps de constater -- observé en intégration
+    # multi-site (jamais reproduit sur les tests à 2 nœuds de ce repo).
+    # `mount && break` seul ne suffit donc pas : on vérifie que le montage
+    # sert vraiment des données (stat réussi) avant de considérer l'étape
+    # acquise, et on redémonte proprement avant chaque nouvel essai.
     for i in $(seq 1 30); do
-        mount -t glusterfs "localhost:/${GLUSTER_VOL}" /export/mail 2>/tmp/mount.err && break
+        mount -t glusterfs "localhost:/${GLUSTER_VOL}" /export/mail 2>/tmp/mount.err
+        if mountpoint -q /export/mail && timeout 3 stat /export/mail > /dev/null 2>&1; then
+            break
+        fi
+        umount -l /export/mail 2>/dev/null || true
         sleep 2
     done
-    mountpoint -q /export/mail || { echo "[mount] FAILED"; cat /tmp/mount.err; exit 1; }
+    mountpoint -q /export/mail && timeout 3 stat /export/mail > /dev/null 2>&1 \
+        || { echo "[mount] FAILED"; cat /tmp/mount.err; exit 1; }
     echo "[mount] OK"
 }
 
