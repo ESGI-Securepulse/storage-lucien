@@ -3,6 +3,16 @@
 ## [Unreleased]
 
 ### Ajouté
+- `WG_GATEWAY_IP` + `sync_wan_routes()` (`entrypoint.sh`) : en déploiement
+  réel multi-hôtes (opt-in, aucun changement pour le banc de test
+  mono-hôte), route la géo-réplication vers les autres sites via la
+  passerelle WireGuard du DC plutôt que de supposer un sous-réseau partagé.
+- `deploy/` : déploiement réel containerisé (un nœud storage par serveur).
+  `generate-config.sh` produit le `.env` du nœud, `deploy.sh <site>-<id>`
+  lance le conteneur (crée le réseau `storage-<site>-lan` partagé entre les
+  2 nœuds si besoin). Limitation documentée dans le README pour le cas de
+  2 serveurs physiques réellement séparés au sein du même DC (bridge
+  Docker insuffisant, macvlan nécessaire, non fourni par défaut).
 - Création du repo : brique stockage manquante identifiée lors de
   l'alignement du code sur `Projet Annuel.docx` (GlusterFS et HA du stockage
   absents partout ailleurs dans le code existant).

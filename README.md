@@ -105,10 +105,41 @@ ne traite pas ce cas).
 | `STORAGE_ID` | `1` | `1` ou `2` — identifiant du nœud dans sa paire |
 | `STORAGE_VIP` | *(requis)* | IP flottante du DC, doit être libre dans le même /24 que le réseau du DC |
 | `STORAGE_VIP_CIDR` | `24` | Masque appliqué à la VIP |
+| `WG_GATEWAY_IP` | *(vide = désactivé)* | Déploiement réel multi-hôtes uniquement : IP locale de la passerelle WireGuard du DC (`LB-Syo/wireguard`, `WG_GATEWAY_ROUTING=1`) pour router la géo-réplication vers les autres sites. Inutile sur le banc de test mono-hôte (sous-réseau déjà partagé). |
 
 Le NIC à utiliser est **auto-détecté** (celui dont l'IP est dans le même /24
 que `STORAGE_VIP`) — pas besoin de le spécifier, robuste même si le conteneur
 est multi-homé (réseau backbone + réseau du site).
+
+## Déploiement réel (containerisé, un nœud par serveur)
+
+```sh
+cd deploy
+./generate-config.sh --site grenoble --node-id 1 --vip 10.20.1.19 \
+    --etcd-url http://<etcd-reachable>:2379 --wg-gateway-ip 10.20.1.100
+./deploy.sh grenoble-1
+# répéter avec --node-id 2 (même site/vip/etcd, WG_GATEWAY_IP identique)
+```
+
+`WG_GATEWAY_IP` est l'IP de la passerelle WireGuard du DC (affichée par
+`LB-Syo/deploy/deploy.sh`) : sans elle, ce nœud ne peut pas atteindre les
+nœuds storage des autres sites (géo-réplication) en dehors du banc de test
+mono-hôte. Voir `add_new_dc.sh` à la racine du projet pour générer la
+config de tout un DC (tous les serveurs, toutes les briques) en une commande.
+
+**Limitation connue — topologie multi-serveurs au sein d'un même DC** :
+`deploy/docker-compose.prod.yml` utilise par défaut un bridge Docker
+classique pour le réseau `storage_lan`, qui ne franchit PAS la frontière
+entre deux machines physiques. Si les 2 nœuds du DC tournent sur la même
+machine (2 conteneurs), c'est suffisant. S'ils tournent sur 2 serveurs
+physiques réellement séparés (cas visé par "X serveurs par DC"), il faut
+remplacer ce bloc réseau par un `macvlan` attaché à la carte réseau réelle
+du site (exemple commenté dans le fichier) — non fourni/testé par défaut
+ici : GlusterFS et Corosync utilisent des ports dynamiques par paire de
+nœuds, une vraie adjacence réseau (LAN physique ou macvlan) est nécessaire,
+publier des ports un par un ne suffit pas. Documenté honnêtement comme
+limite de ce qui a pu être validé sans plusieurs machines physiques
+réelles à disposition pour ce projet.
 
 ## Découverte / intégration avec les autres briques
 

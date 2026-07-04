@@ -4,3 +4,5 @@ __pycache__/
 .env.local
 *.log
 /tests/certs/
+deploy/sites/*
+!deploy/sites/.gitkeep

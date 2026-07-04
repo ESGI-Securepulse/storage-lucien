@@ -332,10 +332,36 @@ ensure_local_writable() {
 
 watch_georep_peers() {
     while true; do
+        sync_wan_routes 2>/dev/null || true
         sync_georep_trust 2>/dev/null || true
         setup_georep_sessions 2>/dev/null || true
         ensure_local_writable
         sleep 30
+    done
+}
+
+# ── routage vers les autres DC (déploiement réel multi-hôtes uniquement) ────
+
+# Sur le banc de test mono-hôte (integration/, tests/), tous les sites
+# partagent un même sous-réseau Docker plat : la géo-réplication atteint le
+# nœud distant directement, sans routage particulier. En déploiement réel
+# (chaque DC sur son propre réseau/serveur), le nœud distant n'est PAS sur
+# le même sous-réseau : ce conteneur doit passer par la passerelle
+# WireguArd du DC (LB-Syo/wireguard, WG_GATEWAY_ROUTING=1 côté passerelle)
+# pour l'atteindre. WG_GATEWAY_IP (vide par défaut = désactivé, aucun
+# changement de comportement pour les bancs de test existants) est l'IP de
+# cette passerelle sur le réseau local du site.
+WG_GATEWAY_IP="${WG_GATEWAY_IP:-}"
+
+sync_wan_routes() {
+    [ -z "$WG_GATEWAY_IP" ] && return 0
+    etcd_list "/skydns/fr/securepulse/all/storage-transport/" | while read -r entry; do
+        [ -z "$entry" ] && continue
+        peer_ip=$(printf '%s' "$entry" | jq -r '.host // empty')
+        peer_site=$(printf '%s' "$entry" | jq -r '.site // empty')
+        [ -z "$peer_ip" ] || [ "$peer_ip" = "$MY_WAN_IP" ] && continue
+        [ -z "$peer_site" ] || [ "$peer_site" = "$SITE" ] && continue
+        ip route replace "${peer_ip}/32" via "$WG_GATEWAY_IP" 2>/dev/null || true
     done
 }
 

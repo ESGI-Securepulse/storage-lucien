@@ -1,0 +1,52 @@
+# storage-lucien/deploy/docker-compose.prod.yml — un nœud storage pour CE
+# serveur réel (les 2 nœuds d'un même DC tournent chacun leur propre
+# instance de cette compose, avec SITE/STORAGE_VIP identiques et
+# STORAGE_ID différent).
+#
+# Réseau : `storage_lan` est un bridge Docker classique par défaut,
+# suffisant si les 2 nœuds du DC tournent sur la MÊME machine physique
+# (2 conteneurs, 1 hôte). Pour 2 serveurs physiques réellement séparés au
+# sein du même DC (cas "X serveurs par DC"), un bridge ne suffit PAS (il ne
+# franchit pas la frontière physique) : remplacer ce bloc réseau par un
+# `macvlan` attaché à la carte réseau réelle du site, ex. :
+#
+#   networks:
+#     storage_lan:
+#       driver: macvlan
+#       driver_opts: { parent: eth0 }   # NIC branchée sur le LAN du DC
+#       ipam: { config: [{ subnet: 10.20.1.0/24, gateway: 10.20.1.1 }] }
+#
+# (non fourni par défaut : le NIC réel et le plan d'adressage du DC sont
+# propres à chaque déploiement, cf. README "Limitation connue — topologie
+# multi-serveurs".) GlusterFS/Corosync utilisent des ports dynamiques par
+# paire de nœuds ; publier des ports un par un ne remplace pas une vraie
+# adjacence réseau.
+services:
+  storage:
+    build: ..
+    container_name: storage-${SITE}-${STORAGE_ID}
+    restart: always
+    cap_add: [SYS_ADMIN, NET_ADMIN]
+    devices: ["/dev/fuse"]
+    security_opt: ["apparmor:unconfined"]
+    environment:
+      SITE: "${SITE}"
+      STORAGE_ID: "${STORAGE_ID}"
+      STORAGE_VIP: "${STORAGE_VIP}"
+      ETCD_URL: "${ETCD_URL}"
+      WG_GATEWAY_IP: "${WG_GATEWAY_IP}"
+    networks:
+      - storage_lan
+    ports:
+      - "2049:2049"
+
+networks:
+  # `external: true` : les 2 nœuds d'un DC sont lancés par 2 invocations
+  # `docker compose` séparées (potentiellement 2 terminaux/2 déploiements
+  # différents) ; un réseau non-external serait recréé, isolé, par
+  # invocation (scoping par nom de projet Compose) — les 2 nœuds ne se
+  # verraient jamais. deploy.sh crée ce réseau une fois avant le premier
+  # `up` (idempotent).
+  storage_lan:
+    external: true
+    name: "storage-${SITE}-lan"
