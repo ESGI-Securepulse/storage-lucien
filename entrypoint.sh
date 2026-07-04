@@ -355,12 +355,23 @@ WG_GATEWAY_IP="${WG_GATEWAY_IP:-}"
 
 sync_wan_routes() {
     [ -z "$WG_GATEWAY_IP" ] && return 0
-    etcd_list "/skydns/fr/securepulse/all/storage-transport/" | while read -r entry; do
+    # Se limiter au seul nœud "storage-transport" (id=1 par site) manquait
+    # les autres nœuds distants (id=2, etc.) : la géo-réplication SSHe/route
+    # depuis TOUS les bricks primaires vers potentiellement tous les bricks
+    # secondaires, pas juste depuis/vers le nœud id=1 — un `gluster volume
+    # geo-replication ... create` échouait en "staging" sur le nœud id=2
+    # local, faute de route de RETOUR pour lui côté site distant (observé en
+    # construisant la validation réseaux-isolés, tests/topology-isolated/).
+    # On route donc vers TOUS les nœuds storage connus, quel que soit leur
+    # site, à l'exception de ceux déjà sur mon propre /24 (joignables
+    # directement, cf. même logique que LDAP/entrypoint.sh).
+    MY_PREFIX=$(echo "$MY_IP" | cut -d. -f1-3)
+    etcd_list "/storage-nodes/" | while read -r entry; do
         [ -z "$entry" ] && continue
         peer_ip=$(printf '%s' "$entry" | jq -r '.host // empty')
-        peer_site=$(printf '%s' "$entry" | jq -r '.site // empty')
-        [ -z "$peer_ip" ] || [ "$peer_ip" = "$MY_WAN_IP" ] && continue
-        [ -z "$peer_site" ] || [ "$peer_site" = "$SITE" ] && continue
+        [ -z "$peer_ip" ] && continue
+        peer_prefix=$(echo "$peer_ip" | cut -d. -f1-3)
+        [ "$peer_prefix" = "$MY_PREFIX" ] && continue
         ip route replace "${peer_ip}/32" via "$WG_GATEWAY_IP" 2>/dev/null || true
     done
 }

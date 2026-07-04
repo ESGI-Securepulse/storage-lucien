@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Corrigé
+- **`sync_wan_routes()` ne routait que vers le nœud "storage-transport"
+  (id=1) de chaque site distant**, jamais vers les autres (id=2, etc.) —
+  la géo-réplication échouait en "staging" sur le nœud id=2 local
+  (`Unable to get remote volume uuid`), faute de route de RETOUR pour lui
+  depuis le site distant (le nœud distant ne savait router que vers
+  l'id=1 local, pas vers l'id=2). Trouvé et corrigé en construisant la
+  validation en réseaux isolés (`integration/tests/topology-isolated/`,
+  seul test qui exerce réellement le routage WAN — le banc de test
+  mono-hôte ne le déclenche jamais, sous-réseau déjà partagé). Route
+  désormais vers tous les nœuds storage connus (`/storage-nodes/`, tous
+  sites confondus), filtrés uniquement par préfixe /24 pour exclure ceux
+  déjà sur le même réseau local que soi.
+
 ### Ajouté
 - `WG_GATEWAY_IP` + `sync_wan_routes()` (`entrypoint.sh`) : en déploiement
   réel multi-hôtes (opt-in, aucun changement pour le banc de test
