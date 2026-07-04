@@ -84,6 +84,24 @@
   désormais avec 0 redémarrage, et la suite `integration/tests/` passe
   intégralement (18 OK / 0 FAIL / 1 SKIP attendu).
 
+- **Faux échecs intermittents de `tests/run_tests.sh`** (§3 montage,
+  §5 NFS-Ganesha, §6 détection du porteur de VIP), reproduits en lançant la
+  suite à la main (hors `run_all_tests.sh`, sur demande explicite) après un
+  rapport d'échec : `entrypoint.sh` lui-même s'est avéré parfaitement sain à
+  l'inspection (montage FUSE actif, `ganesha.nfsd` lancé, VIP portée par un
+  nœud) au moment même où le test le signalait en échec. Cause réelle : ces
+  trois sections faisaient un test unique, immédiat, sans retry — contrairement
+  aux §1/§2/§9 qui utilisent déjà `wait_for` — alors que la convergence de
+  `mount_volume()` (asynchrone par conception, cf. entrée précédente),
+  le démarrage de NFS-Ganesha (qui dépend du montage) et le placement de la
+  ressource `p_vip` par Pacemaker (qui suit le quorum Corosync avec un
+  décalage) prennent chacun quelques secondes de plus que le temps déjà
+  consommé par les `wait_for` des sections précédentes. Les trois sections
+  utilisent désormais des boucles de retry (`wait_for` ou équivalent),
+  confirmé stable sur 2 runs consécutifs à partir d'un rebuild complet
+  (13 OK / 0 FAIL à chaque fois, contre l'échec observé auparavant sur les
+  mêmes bricks pourtant fonctionnelles).
+
 ### Découvert (limitation d'environnement, pas un bug de ce repo)
 - Montage NFSv4 **cross-conteneur** bloqué sur l'hôte de développement
   utilisé pour ce projet (`access denied by server`), alors que le montage

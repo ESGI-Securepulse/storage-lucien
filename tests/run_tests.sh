@@ -30,8 +30,15 @@ wait_for "volume started" "docker exec sl-test-a1 gluster volume status gvol-sit
     && ok "site-a: volume gvol-site-a démarré" || bad "site-a: volume non démarré"
 
 section "3. Montage NFS/FUSE local sur les 2 nœuds"
-docker exec sl-test-a1 mountpoint -q /export/mail && ok "a1: /export/mail monté" || bad "a1: /export/mail non monté"
-docker exec sl-test-a2 mountpoint -q /export/mail && ok "a2: /export/mail monté" || bad "a2: /export/mail non monté"
+# mount_volume() dans l'entrypoint est volontairement asynchrone (le montage
+# FUSE réussit avant que le client glusterfs ait fini de négocier la connexion
+# aux bricks, cf. CHANGELOG storage-lucien) : un check immédiat après les
+# wait_for de §1/§2 peut donc courir plus vite que la fin réelle de
+# mount_volume() sur CE nœud. On retente comme pour les autres sections.
+wait_for "a1 /export/mail monté" "docker exec sl-test-a1 mountpoint -q /export/mail" 60 \
+    && ok "a1: /export/mail monté" || bad "a1: /export/mail non monté"
+wait_for "a2 /export/mail monté" "docker exec sl-test-a2 mountpoint -q /export/mail" 60 \
+    && ok "a2: /export/mail monté" || bad "a2: /export/mail non monté"
 
 section "4. Réplication SYNCHRONE intra-DC (écriture a1 -> lecture a2)"
 # La géo-réplication bidirectionnelle (test 9/10) marque transitoirement le
@@ -56,18 +63,29 @@ else
 fi
 
 section "5. NFS-Ganesha répond (showmount)"
-docker exec sl-test-a1 pidof ganesha.nfsd > /dev/null 2>&1 && ok "a1: ganesha.nfsd actif" || bad "a1: ganesha.nfsd absent"
-docker exec sl-test-a2 pidof ganesha.nfsd > /dev/null 2>&1 && ok "a2: ganesha.nfsd actif" || bad "a2: ganesha.nfsd absent"
+# ganesha.nfsd démarre juste après mount_volume() dans l'entrypoint (donc
+# après la convergence asynchrone du §3) : même besoin de retry qu'au §3.
+wait_for "a1 ganesha.nfsd actif" "docker exec sl-test-a1 pidof ganesha.nfsd" 30 \
+    && ok "a1: ganesha.nfsd actif" || bad "a1: ganesha.nfsd absent"
+wait_for "a2 ganesha.nfsd actif" "docker exec sl-test-a2 pidof ganesha.nfsd" 30 \
+    && ok "a2: ganesha.nfsd actif" || bad "a2: ganesha.nfsd absent"
 
 section "6. Corosync/Pacemaker quorum + VIP flottante (site-a)"
 wait_for "pacemaker quorate" "docker exec sl-test-a1 crm_mon -1 --as-xml | grep -q 'quorum=\"true\"'" 40 \
     && ok "site-a: cluster Pacemaker quorate" || bad "site-a: cluster non quorate"
 
 VIP_HOLDER=""
-for c in sl-test-a1 sl-test-a2; do
-    if docker exec "$c" ip addr show | grep -q "10.60.1.19"; then
-        VIP_HOLDER="$c"
-    fi
+# Le quorum Corosync (juste au-dessus) ne garantit pas que Pacemaker ait déjà
+# fini de placer la ressource p_vip : quelques secondes de plus sont
+# normales. On retente au lieu d'un unique passage.
+for i in $(seq 1 40); do
+    for c in sl-test-a1 sl-test-a2; do
+        if docker exec "$c" ip addr show 2>/dev/null | grep -q "10.60.1.19"; then
+            VIP_HOLDER="$c"
+        fi
+    done
+    [ -n "$VIP_HOLDER" ] && break
+    sleep 2
 done
 [ -n "$VIP_HOLDER" ] && ok "VIP 10.60.1.19 portée par ${VIP_HOLDER}" || bad "VIP 10.60.1.19 non assignée à aucun nœud"
 
