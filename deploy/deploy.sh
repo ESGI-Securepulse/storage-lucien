@@ -9,8 +9,8 @@ KEY="${1:?usage: ./deploy.sh <site>-<node-id>  (ex: grenoble-1)}"
 
 # shellcheck disable=SC1090
 SITE=$(grep '^SITE=' "sites/${KEY}/.env" | cut -d= -f2)
-docker network create "storage-${SITE}-lan" > /dev/null 2>&1 || true
+docker network create "dc-${SITE}-lan" > /dev/null 2>&1 || true
 
 docker compose -f docker-compose.prod.yml --env-file "sites/${KEY}/.env" up -d --build
-echo "[deploy] storage-${KEY} démarré (réseau storage-${SITE}-lan)."
+echo "[deploy] storage-${KEY} démarré (réseau dc-${SITE}-lan)."
 echo "[deploy] rappel : le 2e nœud de ce DC doit rejoindre CE MÊME réseau (voir README, macvlan si serveur physique séparé)."
